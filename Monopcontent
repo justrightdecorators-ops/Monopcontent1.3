@@ -1,0 +1,130 @@
+# === All-in-One Content & Creator Management Script ===
+
+# Put your GitHub personal access token here
+GITHUB_TOKEN = ""  # <- Insert your token here
+GITHUB_USERNAME = "YourGitHubUsername"  # Replace with your GitHub username
+GITHUB_REPO = "monopcontent1.3"  # Your repository name
+
+import os
+import json
+import shutil
+import zipfile
+import datetime
+import base64
+import requests
+
+# Creator info
+CREATOR_NAME = "Justin Dobson"
+CREATOR_EMAIL = "justrightdecorators@gmail.com"
+CREATOR_WALLET = "2UsopMebixdg21RcNxFiL2dU5sCmebUtWQLjJT878gnV"
+
+# Content folder & zip
+CONTENT_FOLDER = "content_files"
+ZIP_NAME = "MonopCopyContent.zip"
+EXTRACT_FOLDER = "extracted_content"
+
+# Data storage
+creators = []
+content_records = []
+violations = []
+
+# --- Functions ---
+
+def register_creator(name, email, wallet):
+    creator = {
+        "name": name,
+        "email": email,
+        "wallet": wallet,
+        "registered_at": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
+    }
+    creators.append(creator)
+    print(f"Creator {name} registered successfully at {creator['registered_at']}.")
+
+def upload_content(file_path):
+    if not os.path.exists(file_path):
+        print(f"Content file '{file_path}' not found.")
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
+    record = {"file": file_path, "uploaded_by": CREATOR_EMAIL, "timestamp": timestamp}
+    content_records.append(record)
+    print(f"Content '{file_path}' uploaded by {CREATOR_EMAIL} at {timestamp}.")
+    return record
+
+def record_violation(file_path, violation_type, penalty):
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
+    violation = {"file": file_path, "type": violation_type, "penalty": penalty, "timestamp": timestamp}
+    violations.append(violation)
+    print(f"Violation recorded for {file_path} ({violation_type}) at {timestamp}, penalty: {penalty}")
+
+def record_royalty(file_path, amount):
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
+    print(f"Royalty recorded: {file_path}, total due {amount} at {timestamp}")
+
+def generate_receipt(email):
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
+    receipt = {
+        "email": email,
+        "creator": CREATOR_NAME,
+        "wallet": CREATOR_WALLET,
+        "timestamp": timestamp,
+        "violations": violations,
+        "content_records": content_records
+    }
+    filename = f"{email}_receipt.json"
+    with open(filename, "w") as f:
+        json.dump(receipt, f, indent=4)
+    print(f"Receipt generated as {filename}")
+    return filename
+
+def create_zip(source_folder, zip_name):
+    shutil.make_archive(zip_name.replace(".zip", ""), 'zip', source_folder)
+    print(f"✅ Zip created successfully: {zip_name}")
+    with zipfile.ZipFile(zip_name, 'r') as zip_ref:
+        zip_ref.extractall(EXTRACT_FOLDER)
+    print(f"Extracted {zip_name} to folder: {EXTRACT_FOLDER}")
+
+def deploy_to_github(zip_name):
+    if not GITHUB_TOKEN:
+        print("GitHub token not set. Deployment skipped.")
+        return
+    # Check repo existence
+    repo_url = f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    repo_resp = requests.get(repo_url, headers=headers)
+    if repo_resp.status_code == 404:
+        # Create repo
+        create_url = "https://api.github.com/user/repos"
+        data = {"name": GITHUB_REPO, "private": False, "description": "Monopolizes content videos/photos"}
+        create_resp = requests.post(create_url, headers=headers, json=data)
+        if create_resp.status_code == 201:
+            print(f"Repository {GITHUB_REPO} created successfully.")
+        else:
+            print("Error creating repo:", create_resp.json())
+            return
+    # Upload zip file
+    with open(zip_name, "rb") as f:
+        content = base64.b64encode(f.read()).decode("utf-8")
+    upload_url = f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/contents/{zip_name}"
+    data = {"message": f"Add {zip_name}", "content": content}
+    resp = requests.put(upload_url, headers=headers, json=data)
+    if resp.status_code in [200, 201]:
+        print(f"✅ {zip_name} deployed to GitHub repository {GITHUB_REPO}.")
+    else:
+        print("Error uploading to GitHub:", resp.json())
+
+# --- Main Execution ---
+
+def run_all():
+    register_creator(CREATOR_NAME, CREATOR_EMAIL, CREATOR_WALLET)
+    for root, dirs, files in os.walk(CONTENT_FOLDER):
+        for file in files:
+            file_path = os.path.join(root, file)
+            upload_content(file_path)
+            record_violation(file_path, "inappropriate", 5.0)
+            record_royalty(file_path, 0.08)
+    generate_receipt(CREATOR_EMAIL)
+    create_zip(CONTENT_FOLDER, ZIP_NAME)
+    deploy_to_github(ZIP_NAME)
+    print("System execution complete. ✅ All-in-one done.")
+
+if __name__ == "__main__":
+    run_all()
